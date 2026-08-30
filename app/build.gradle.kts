@@ -4,6 +4,9 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// An unset repo secret arrives as an empty string rather than as null, so blank means absent.
+val keystorePath: String? = System.getenv("CAIRN_KEYSTORE")?.takeIf { it.isNotBlank() }
+
 android {
     namespace = "com.cairn.launcher"
     compileSdk = 35
@@ -12,15 +15,15 @@ android {
         applicationId = "com.cairn.launcher"
         minSdk = 31
         targetSdk = 35
-        versionCode = (System.getenv("CAIRN_BUILD") ?: "1").toInt()
-        versionName = "0.1.${System.getenv("CAIRN_BUILD") ?: "0"}"
+        val build = System.getenv("CAIRN_BUILD")?.takeIf { it.isNotBlank() } ?: "1"
+        versionCode = build.toInt()
+        versionName = "0.1.$build"
     }
 
     signingConfigs {
         create("release") {
-            val store = System.getenv("CAIRN_KEYSTORE")
-            if (store != null) {
-                storeFile = file(store)
+            if (keystorePath != null) {
+                storeFile = file(keystorePath)
                 storePassword = System.getenv("CAIRN_STORE_PASSWORD")
                 keyAlias = System.getenv("CAIRN_KEY_ALIAS")
                 keyPassword = System.getenv("CAIRN_KEY_PASSWORD")
@@ -31,7 +34,7 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
-            if (System.getenv("CAIRN_KEYSTORE") != null) {
+            if (keystorePath != null) {
                 signingConfig = signingConfigs.getByName("release")
             }
         }
