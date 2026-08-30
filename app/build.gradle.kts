@@ -24,6 +24,8 @@ android {
         create("release") {
             if (keystorePath != null) {
                 storeFile = file(keystorePath)
+                // Generated with openssl rather than keytool, so it is a PKCS12 store.
+                storeType = "PKCS12"
                 storePassword = System.getenv("CAIRN_STORE_PASSWORD")
                 keyAlias = System.getenv("CAIRN_KEY_ALIAS")
                 keyPassword = System.getenv("CAIRN_KEY_PASSWORD")
