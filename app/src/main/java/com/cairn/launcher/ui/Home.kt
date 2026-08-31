@@ -38,15 +38,17 @@ import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.layoutId
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.cairn.launcher.data.AppInfo
-import com.cairn.launcher.data.GRID_COLS
-import com.cairn.launcher.data.GRID_ROWS
 import com.cairn.launcher.data.Page
 import com.cairn.launcher.data.Placed
+import com.cairn.launcher.data.Prefs
 import com.cairn.launcher.data.Slot
 import com.cairn.launcher.data.itemAt
 import com.cairn.launcher.notify.Notice
@@ -99,14 +101,18 @@ private val PANEL_HEIGHT = 132.dp
 fun Home(
     apps: List<AppInfo>,
     layout: CairnLayout,
+    prefs: Prefs,
     host: CairnWidgetHost,
     onLaunch: (AppInfo) -> Unit,
     onShortcuts: (String) -> List<android.content.pm.ShortcutInfo>,
     onStartShortcut: (android.content.pm.ShortcutInfo) -> Unit,
     onReply: (Notice, String) -> Unit,
     onDrawerDrag: (Float) -> Unit,
-    onDrawerRelease: () -> Unit,
+    onDrawerRelease: (Float) -> Unit,
     onOpenSettings: () -> Unit,
+    menuOpen: Boolean,
+    onShowAppMenu: (Int, Placed) -> Unit,
+    onDismissAppMenu: () -> Unit,
     onOpenOverview: () -> Unit,
     onDrop: (LiftState, Drop, Int) -> Unit,
     onRenameFolder: (Int, Placed, String) -> Unit,
@@ -123,6 +129,7 @@ fun Home(
     )
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
+    val haptics = LocalHapticFeedback.current
 
     var pull by remember { mutableStateOf<PullTarget?>(null) }
     val pullProgress = remember { Animatable(0f) }
@@ -135,23 +142,27 @@ fun Home(
     var removeRect by remember { mutableStateOf(Rect.Zero) }
     val tileBounds = remember { mutableMapOf<String, Pair<Offset, Offset>>() }
 
-    val cellW = if (gridRect.width > 0f) gridRect.width / GRID_COLS else 1f
-    val cellH = if (gridRect.height > 0f) gridRect.height / GRID_ROWS else 1f
+    val cellW = if (gridRect.width > 0f) gridRect.width / prefs.cols else 1f
+    val cellH = if (gridRect.height > 0f) gridRect.height / prefs.rows else 1f
 
     fun resolve(point: Offset): Drop = when {
         removeRect.width > 0f && removeRect.contains(point) -> Drop.Remove
         dockRect.width > 0f && dockRect.contains(point) ->
-            Drop.Dock(((point.x - dockRect.left) / (dockRect.width / 5f)).toInt().coerceIn(0, 4))
+            Drop.Dock(
+                ((point.x - dockRect.left) / (dockRect.width / prefs.dockCount.coerceAtLeast(1)))
+                    .toInt().coerceIn(0, (prefs.dockCount - 1).coerceAtLeast(0))
+            )
         gridRect.width > 0f && gridRect.contains(point) -> {
-            val col = ((point.x - gridRect.left) / cellW).toInt().coerceIn(0, GRID_COLS - 1)
-            val row = ((point.y - gridRect.top) / cellH).toInt().coerceIn(0, GRID_ROWS - 1)
+            val col = ((point.x - gridRect.left) / cellW).toInt().coerceIn(0, prefs.cols - 1)
+            val row = ((point.y - gridRect.top) / cellH).toInt().coerceIn(0, prefs.rows - 1)
             Drop.Cell(col, row, layout.pages.getOrNull(pagerState.currentPage)?.itemAt(col, row))
         }
         else -> Drop.None
     }
 
     fun release() {
-        lift?.let { onDrop(it, resolve(it.pointer), pagerState.currentPage) }
+        // A hold that never moved is a menu, not a drag, so it must not also move the icon.
+        if (!menuOpen) lift?.let { onDrop(it, resolve(it.pointer), pagerState.currentPage) }
         lift = null
     }
 
@@ -186,6 +197,7 @@ fun Home(
         Column(Modifier.fillMaxSize()) {
 
             ClockLine(
+                prefs = prefs,
                 modifier = Modifier
                     .padding(horizontal = Cairn.PagePadding)
                     .padding(top = 8.dp, bottom = 20.dp)
@@ -201,14 +213,19 @@ fun Home(
                     .pinchIn { onOpenOverview() }
                     // Swipe up anywhere on the page. Tiles consume downward drags for the pull
                     // and consume nothing else, so an upward drag reaches this untouched.
-                    .pointerInput(Unit) {
+                    .longPressBackground { onOpenSettings() }
+                    .pointerInput(prefs.drawerSensitivity) {
+                        val tracker = VelocityTracker()
                         detectVerticalDragGestures(
-                            onDragEnd = { onDrawerRelease() },
-                            onDragCancel = { onDrawerRelease() }
+                            onDragStart = { tracker.resetTracking() },
+                            onDragEnd = { onDrawerRelease(tracker.calculateVelocity().y) },
+                            onDragCancel = { onDrawerRelease(0f) }
                         ) { change, dragAmount ->
                             if (dragAmount < 0f) {
                                 change.consume()
-                                onDrawerDrag(-dragAmount)
+                                tracker.addPosition(change.uptimeMillis, change.position)
+                                // Gain, so the drawer travels further than the finger does.
+                                onDrawerDrag(-dragAmount * prefs.drawerSensitivity)
                             }
                         }
                     }
@@ -217,6 +234,7 @@ fun Home(
                     page = layout.pages.getOrNull(pageIndex) ?: Page(emptyList()),
                     pageIndex = pageIndex,
                     isCurrent = pageIndex == pagerState.currentPage,
+                    prefs = prefs,
                     byKey = byKey,
                     host = host,
                     pull = pull?.takeIf { it.page == pageIndex },
@@ -257,6 +275,7 @@ fun Home(
                         val item = layout.pages.getOrNull(pageIndex)?.items?.getOrNull(index)
                         val bounds = tileBounds["$pageIndex:$index"]
                         if (item != null && bounds != null) {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                             lift = LiftState(
                                 page = pageIndex,
                                 item = item,
@@ -264,9 +283,14 @@ fun Home(
                                 grab = grab,
                                 size = bounds.second
                             )
+                            onShowAppMenu(pageIndex, item)
                         }
                     },
-                    onLiftMove = { moved -> lift = lift?.copy(moved = moved) },
+                    onLiftMove = { moved ->
+                        // Once you actually move, the hold stops being a menu and becomes a drag.
+                        if (moved.getDistance() > 24f) onDismissAppMenu()
+                        lift = lift?.copy(moved = moved)
+                    },
                     onLiftDrop = { release() },
                     onFolderChildLift = { folderItem, key, grab, root, size ->
                         lift = LiftState(
@@ -292,8 +316,9 @@ fun Home(
 
             DrawerHandle(onDrag = onDrawerDrag, onRelease = onDrawerRelease)
 
-            Dock(
-                slots = layout.dock,
+            if (prefs.showDock) Dock(
+                slots = layout.dock.take(prefs.dockCount),
+                prefs = prefs,
                 byKey = byKey,
                 onLaunch = onLaunch,
                 onBounds = { dockRect = it },
@@ -319,7 +344,7 @@ fun Home(
         }
 
         // Only while something is in the air, and it is a word rather than a bin icon.
-        if (current != null) {
+        if (current != null && !menuOpen) {
             Text(
                 text = "Remove",
                 color = if (removeRect.contains(current.pointer)) Cairn.Accent
@@ -341,7 +366,7 @@ fun Home(
         }
 
         // The item itself, drawn under your finger and above everything else.
-        current?.let { l ->
+        current?.takeIf { !menuOpen }?.let { l ->
             val app = (l.item.slot as? Slot.App)?.key?.let { byKey[it] }
             val local = l.topLeft - homeRoot
             Box(
@@ -380,6 +405,7 @@ private fun PageGrid(
     page: Page,
     pageIndex: Int,
     isCurrent: Boolean,
+    prefs: Prefs,
     byKey: Map<String, AppInfo>,
     host: CairnWidgetHost,
     pull: PullTarget?,
@@ -416,9 +442,9 @@ private fun PageGrid(
         // A row is a fixed height, not a share of the page. Dividing the page by the row count
         // left a 48dp icon floating in the middle of a 140dp cell, which is most of why this
         // looked nothing like the drawings.
-        val cellWidth = maxWidth / GRID_COLS
-        val cellHeight = Cairn.RowHeight
-        val gridHeight = cellHeight * GRID_ROWS
+        val cellWidth = maxWidth / prefs.cols
+        val cellHeight = prefs.rowHeightDp.dp
+        val gridHeight = cellHeight * prefs.rows
         val gridTop = (maxHeight - gridHeight).coerceAtLeast(0.dp)
         val rowPx = with(density) { cellHeight.roundToPx() }
 
@@ -444,6 +470,7 @@ private fun PageGrid(
                         if (!inTheAir) {
                             SlotContent(
                                 placed = placed,
+                                prefs = prefs,
                                 byKey = byKey,
                                 host = host,
                                 onLaunch = onLaunch,
@@ -467,7 +494,7 @@ private fun PageGrid(
                     onBounds(Rect(p.x, p.y, p.x + it.size.width, p.y + it.size.height))
                 }
         ) { measurables, constraints ->
-            val w = if (GRID_COLS > 0) constraints.maxWidth / GRID_COLS else constraints.maxWidth
+            val w = constraints.maxWidth / prefs.cols.coerceAtLeast(1)
             val h = rowPx
             val shift = (pullProgress * panelPx).toInt()
 
@@ -491,6 +518,8 @@ private fun PageGrid(
         if (resizing != null) {
             ResizeHandles(
                 item = resizing,
+                cols = prefs.cols,
+                rows = prefs.rows,
                 topInset = gridTop,
                 cellWidth = cellWidth,
                 cellHeight = cellHeight,
@@ -543,6 +572,8 @@ private fun PageGrid(
 @Composable
 private fun ResizeHandles(
     item: Placed,
+    cols: Int,
+    rows: Int,
     topInset: Dp,
     cellWidth: Dp,
     cellHeight: Dp,
@@ -573,7 +604,7 @@ private fun ResizeHandles(
                         acc += amount
                         if (abs(acc) > step) {
                             spanX = (spanX + if (acc > 0) 1 else -1)
-                                .coerceIn(1, GRID_COLS - item.col)
+                                .coerceIn(1, cols - item.col)
                             onResize(spanX, spanY)
                             acc = 0f
                         }
@@ -594,7 +625,7 @@ private fun ResizeHandles(
                         acc += amount
                         if (abs(acc) > step) {
                             spanY = (spanY + if (acc > 0) 1 else -1)
-                                .coerceIn(1, GRID_ROWS - item.row)
+                                .coerceIn(1, rows - item.row)
                             onResize(spanX, spanY)
                             acc = 0f
                         }
@@ -607,6 +638,7 @@ private fun ResizeHandles(
 @Composable
 private fun SlotContent(
     placed: Placed,
+    prefs: Prefs,
     byKey: Map<String, AppInfo>,
     host: CairnWidgetHost,
     onLaunch: (AppInfo) -> Unit,
@@ -635,7 +667,13 @@ private fun SlotContent(
                         ),
                     contentAlignment = Alignment.TopCenter
                 ) {
-                    IconTile(app)
+                    IconTile(
+                        app = app,
+                        showLabel = prefs.showLabels,
+                        iconSize = prefs.iconDp.dp,
+                        showCaption = prefs.notificationCaptions,
+                        showLevel = prefs.levelRules
+                    )
                 }
             }
         }
@@ -689,7 +727,7 @@ private fun SlotContent(
  * because there is no long press anywhere in Cairn.
  */
 @Composable
-private fun ClockLine(modifier: Modifier = Modifier) {
+private fun ClockLine(prefs: Prefs, modifier: Modifier = Modifier) {
     var now by remember { mutableStateOf(Date()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -701,16 +739,20 @@ private fun ClockLine(modifier: Modifier = Modifier) {
     val date = remember(now) { SimpleDateFormat("EEEE d MMMM", Locale.getDefault()).format(now) }
 
     Column(modifier) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(time, color = wallpaperTextColor(), fontSize = Cairn.ClockSize)
-            Spacer(Modifier.width(8.dp))
-            Box(
-                Modifier
-                    .size(4.dp)
-                    .background(Cairn.Accent)
-            )
+        if (prefs.showClock) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(time, color = wallpaperTextColor(), fontSize = Cairn.ClockSize)
+                Spacer(Modifier.width(8.dp))
+                Box(
+                    Modifier
+                        .size(4.dp)
+                        .background(Cairn.Accent)
+                )
+            }
         }
-        Text(date, color = secondaryTextColor(), fontSize = Cairn.DateSize)
+        if (prefs.showDate) {
+            Text(date, color = secondaryTextColor(), fontSize = Cairn.DateSize)
+        }
     }
 }
 
@@ -741,6 +783,7 @@ private fun PageRule(pageCount: Int, offset: Float, modifier: Modifier = Modifie
 @Composable
 private fun Dock(
     slots: List<Slot>,
+    prefs: Prefs,
     byKey: Map<String, AppInfo>,
     onLaunch: (AppInfo) -> Unit,
     onBounds: (Rect) -> Unit,
@@ -779,7 +822,13 @@ private fun Dock(
                             onLiftDrop = onLiftDrop
                         )
                 ) {
-                    IconTile(app, showLabel = false)
+                    IconTile(
+                        app = app,
+                        showLabel = false,
+                        iconSize = prefs.iconDp.dp,
+                        showCaption = prefs.notificationCaptions,
+                        showLevel = prefs.levelRules
+                    )
                 }
             }
         }

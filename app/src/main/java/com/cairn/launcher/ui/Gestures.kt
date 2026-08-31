@@ -143,3 +143,39 @@ fun Modifier.pinchIn(threshold: Float = 0.72f, onPinchIn: () -> Unit): Modifier 
             }
         }
     }
+
+/**
+ * A hold on empty space, for the page's own menu.
+ *
+ * Written by hand rather than with detectTapGestures because that consumes the down, which would
+ * take the horizontal drag away from the pager again. This consumes nothing unless the hold
+ * actually completes, and a hold that completes never moved, so nothing else was mid-gesture.
+ */
+fun Modifier.longPressBackground(onLongPress: () -> Unit): Modifier = pointerInput(Unit) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = true)
+        val slop = viewConfiguration.touchSlop
+        var travel = Offset.Zero
+        var moved = false
+
+        try {
+            withTimeout(viewConfiguration.longPressTimeoutMillis) {
+                while (true) {
+                    val event = awaitPointerEvent()
+                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                    if (!change.pressed || change.isConsumed) {
+                        moved = true
+                        break
+                    }
+                    travel += change.positionChange()
+                    if (travel.getDistance() > slop) {
+                        moved = true
+                        break
+                    }
+                }
+            }
+        } catch (_: PointerEventTimeoutCancellationException) {
+            if (!moved) onLongPress()
+        }
+    }
+}

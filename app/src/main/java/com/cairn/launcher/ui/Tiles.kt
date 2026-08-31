@@ -44,7 +44,11 @@ fun IconTile(
     modifier: Modifier = Modifier,
     showLabel: Boolean = true,
     onSurface: Boolean = false,
-    iconSize: Dp = Cairn.IconSize
+    iconSize: Dp = Cairn.IconSize,
+    /** Swap the caption to the sender's name when something is waiting. */
+    showCaption: Boolean = true,
+    /** Draw the rule whose length is a media position or a download. */
+    showLevel: Boolean = true
 ) {
     val px = with(androidx.compose.ui.platform.LocalDensity.current) { iconSize.roundToPx() }
     val bitmap = remember(app.key, px) {
@@ -56,13 +60,14 @@ fun IconTile(
     val notices by NotificationState.notices.collectAsState()
     val media by NotificationState.media.collectAsState()
     val notice = notices[app.packageName]
-    val level = notice?.level ?: media[app.packageName]
+    val level = if (showLevel) (notice?.level ?: media[app.packageName]) else null
 
     val primary: Color = if (onSurface) Cairn.OnSurface else wallpaperTextColor()
     val secondary: Color = if (onSurface) Cairn.OnSurfaceSecondary else secondaryTextColor()
 
-    val caption = notice?.title?.takeIf { it.isNotBlank() } ?: app.label
-    val highlighted = notice?.title?.isNotBlank() == true
+    val sender = if (showCaption) notice?.title?.takeIf { it.isNotBlank() } else null
+    val caption = sender ?: app.label
+    val highlighted = sender != null
 
     Column(
         modifier = modifier,

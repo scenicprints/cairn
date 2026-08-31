@@ -97,10 +97,17 @@ fun LayoutStore.removeFromFolder(pageIndex: Int, item: Placed, key: String) {
     }
 }
 
-fun LayoutStore.resizeWidget(pageIndex: Int, item: Placed, spanX: Int, spanY: Int) {
+fun LayoutStore.resizeWidget(
+    pageIndex: Int,
+    item: Placed,
+    spanX: Int,
+    spanY: Int,
+    cols: Int = GRID_COLS,
+    rows: Int = GRID_ROWS
+) {
     if (item.slot !is Slot.Widget) return
-    val x = spanX.coerceIn(1, GRID_COLS - item.col)
-    val y = spanY.coerceIn(1, GRID_ROWS - item.row)
+    val x = spanX.coerceIn(1, cols - item.col)
+    val y = spanY.coerceIn(1, rows - item.row)
     val resized = item.copy(spanX = x, spanY = y)
     mutate(pageIndex) { items ->
         items.filterNot { it == item || occupies(it, resized) } + resized

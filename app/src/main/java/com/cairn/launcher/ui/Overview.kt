@@ -22,8 +22,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.cairn.launcher.data.GRID_COLS
-import com.cairn.launcher.data.GRID_ROWS
 import com.cairn.launcher.data.Layout as CairnLayout
 import com.cairn.launcher.data.Page
 import com.cairn.launcher.data.Slot
@@ -39,6 +37,8 @@ import com.cairn.launcher.data.Slot
 @Composable
 fun PageOverview(
     layout: CairnLayout,
+    cols: Int,
+    rows: Int,
     currentPage: Int,
     onJump: (Int) -> Unit,
     onSetHome: (Int) -> Unit,
@@ -69,6 +69,8 @@ fun PageOverview(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         PageThumbnail(
                             page = page,
+                            cols = cols,
+                            rows = rows,
                             isHome = index == layout.homePage,
                             isCurrent = index == currentPage,
                             modifier = Modifier
@@ -123,7 +125,7 @@ fun PageOverview(
                         Box(
                             Modifier
                                 .width(96.dp)
-                                .aspectRatio(GRID_COLS.toFloat() / GRID_ROWS)
+                                .aspectRatio(cols.toFloat() / rows)
                                 .border(1.dp, Cairn.SurfaceHairline)
                                 .clickableNoRipple { onAddPage() },
                             contentAlignment = Alignment.Center
@@ -148,13 +150,15 @@ fun PageOverview(
 @Composable
 private fun PageThumbnail(
     page: Page,
+    cols: Int,
+    rows: Int,
     isHome: Boolean,
     isCurrent: Boolean,
     modifier: Modifier = Modifier
 ) {
     Box(
         modifier
-            .aspectRatio(GRID_COLS.toFloat() / GRID_ROWS)
+            .aspectRatio(cols.toFloat() / rows)
             .border(
                 width = if (isCurrent) 1.dp else 1.dp,
                 color = if (isCurrent) Cairn.OnSurface else Cairn.SurfaceHairline
@@ -162,9 +166,9 @@ private fun PageThumbnail(
             .padding(4.dp)
     ) {
         Column(Modifier.fillMaxSize()) {
-            for (row in 0 until GRID_ROWS) {
+            for (row in 0 until rows) {
                 Row(Modifier.weight(1f).fillMaxWidth()) {
-                    for (col in 0 until GRID_COLS) {
+                    for (col in 0 until cols) {
                         val item = page.items.firstOrNull {
                             col in it.col until (it.col + it.spanX) &&
                                 row in it.row until (it.row + it.spanY)

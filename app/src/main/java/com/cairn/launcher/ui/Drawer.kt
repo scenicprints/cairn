@@ -72,28 +72,35 @@ fun Drawer(
     Column(
         modifier
             .fillMaxSize()
-            .background(Cairn.Surface.copy(alpha = (0.94f * progress).coerceIn(0f, 1f)))
+            .background(Cairn.Surface.copy(alpha = progress.coerceIn(0f, 1f)))
             .imePadding()
             .padding(horizontal = Cairn.PagePadding)
     ) {
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(12.dp))
 
         // The one row Nova gets right: recent, new, frequent, across the top. These are real
         // touch targets now rather than eleven-point text with a text-sized hit area.
-        Row(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
             DrawerRow.entries.forEach { mode ->
+                val selected = mode == rowMode
                 Box(
                     Modifier
                         .weight(1f)
-                        .height(Cairn.MinTouch)
+                        .height(52.dp)
+                        .background(
+                            if (selected) Cairn.OnSurface.copy(alpha = 0.12f)
+                            else Color.Transparent
+                        )
                         .clickableNoRipple { onRowModeChange(mode) },
-                    contentAlignment = Alignment.CenterStart
+                    contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = mode.name.lowercase(),
-                        color = if (mode == rowMode) Cairn.OnSurface
-                        else Cairn.OnSurfaceSecondary,
-                        fontSize = 14.sp
+                        color = if (selected) Cairn.OnSurface else Cairn.OnSurfaceSecondary,
+                        fontSize = 17.sp
                     )
                 }
             }

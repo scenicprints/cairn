@@ -37,7 +37,7 @@ class LayoutStore(private val context: Context) {
      * launcher look broken before it had done anything wrong. Everything you own is already one
      * swipe away in the drawer, so the home screen starts nearly empty and you fill it yourself.
      */
-    fun seedIfEmpty(apps: List<AppInfo>) {
+    fun seedIfEmpty(apps: List<AppInfo>, cols: Int = GRID_COLS, rows: Int = GRID_ROWS) {
         if (file.exists() || apps.isEmpty()) return
 
         val wanted = listOf("dialer", "messaging", "chrome", "camera", "photos")
@@ -46,12 +46,12 @@ class LayoutStore(private val context: Context) {
         }.distinctBy { it.key }.take(5).ifEmpty { apps.take(5) }
 
         val docked = dock.map { it.key }.toSet()
-        val onPage = apps.filterNot { it.key in docked }.take(GRID_COLS * 3)
+        val onPage = apps.filterNot { it.key in docked }.take(cols * (rows - 2).coerceAtLeast(1))
 
         val page = Page(onPage.mapIndexed { i, app ->
             Placed(
-                col = i % GRID_COLS,
-                row = i / GRID_COLS,
+                col = i % cols,
+                row = i / cols,
                 spanX = 1,
                 spanY = 1,
                 slot = Slot.App(app.key)
@@ -66,10 +66,10 @@ class LayoutStore(private val context: Context) {
      * touches an existing layout, so a bad first seed would otherwise outlive every update that
      * fixed it.
      */
-    fun reset(apps: List<AppInfo>) {
+    fun reset(apps: List<AppInfo>, cols: Int = GRID_COLS, rows: Int = GRID_ROWS) {
         runCatching { file.delete() }
         _layout.value = Layout(listOf(Page(emptyList())), emptyList(), 0)
-        seedIfEmpty(apps)
+        seedIfEmpty(apps, cols, rows)
     }
 
     fun update(next: Layout) {
@@ -117,10 +117,16 @@ class LayoutStore(private val context: Context) {
     }
 
     /** The first cell where a spanX by spanY block fits without displacing anything. */
-    fun firstFreeSlot(pageIndex: Int, spanX: Int, spanY: Int): Pair<Int, Int>? {
+    fun firstFreeSlot(
+        pageIndex: Int,
+        spanX: Int,
+        spanY: Int,
+        cols: Int = GRID_COLS,
+        rows: Int = GRID_ROWS
+    ): Pair<Int, Int>? {
         val page = _layout.value.pages.getOrNull(pageIndex) ?: return null
-        for (row in 0..(GRID_ROWS - spanY)) {
-            for (col in 0..(GRID_COLS - spanX)) {
+        for (row in 0..(rows - spanY)) {
+            for (col in 0..(cols - spanX)) {
                 val candidate = Placed(col, row, spanX, spanY, Slot.App(""))
                 if (page.items.none { overlaps(it, candidate) }) return col to row
             }

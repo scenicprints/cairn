@@ -3,7 +3,9 @@ package com.cairn.launcher
 import android.app.Activity
 import android.appwidget.AppWidgetManager
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -25,9 +27,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.dp
 import com.cairn.launcher.data.AppRepository
 import com.cairn.launcher.data.LayoutStore
 import com.cairn.launcher.data.Placed
+import com.cairn.launcher.data.PrefsStore
 import com.cairn.launcher.data.Slot
 import com.cairn.launcher.data.makeFolder
 import com.cairn.launcher.data.moveBetweenPages
@@ -37,9 +41,10 @@ import com.cairn.launcher.data.renameFolder
 import com.cairn.launcher.data.resizeWidget
 import com.cairn.launcher.data.setDock
 import com.cairn.launcher.notify.NotificationState
-import com.cairn.launcher.ui.Drop
+import com.cairn.launcher.ui.AppMenu
 import com.cairn.launcher.ui.Drawer
 import com.cairn.launcher.ui.DrawerRow
+import com.cairn.launcher.ui.Drop
 import com.cairn.launcher.ui.Home
 import com.cairn.launcher.ui.LiftState
 import com.cairn.launcher.ui.PageOverview
@@ -54,6 +59,7 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var repo: AppRepository
     private lateinit var store: LayoutStore
+    private lateinit var prefsStore: PrefsStore
     private lateinit var host: CairnWidgetHost
 
     /** Which page a widget being picked should land on. */
@@ -65,14 +71,17 @@ class MainActivity : ComponentActivity() {
 
         repo = AppRepository(this)
         store = LayoutStore(this)
+        prefsStore = PrefsStore(this)
         host = CairnWidgetHost(this)
 
+        prefsStore.load()
         store.load()
         repo.start()
 
         setContent {
             val apps by repo.apps.collectAsState()
             val layout by store.layout.collectAsState()
+            val prefs by prefsStore.prefs.collectAsState()
             val scope = rememberCoroutineScope()
             val drawer = remember { Animatable(0f) }
 
@@ -80,9 +89,10 @@ class MainActivity : ComponentActivity() {
             var settingsOpen by remember { mutableStateOf(false) }
             var overviewOpen by remember { mutableStateOf(false) }
             var goToPage by remember { mutableStateOf<Int?>(null) }
+            var appMenu by remember { mutableStateOf<Pair<Int, Placed>?>(null) }
 
             LaunchedEffect(apps.size) {
-                if (apps.isNotEmpty()) store.seedIfEmpty(apps)
+                if (apps.isNotEmpty()) store.seedIfEmpty(apps, prefs.cols, prefs.rows)
             }
 
             val rowApps = remember(apps, rowMode) {
@@ -92,6 +102,10 @@ class MainActivity : ComponentActivity() {
                     DrawerRow.Frequent -> repo.frequent()
                 }.ifEmpty { apps.take(6) }
             }
+
+            val menuApp = appMenu?.second?.slot
+                ?.let { it as? Slot.App }
+                ?.let { slot -> apps.firstOrNull { it.key == slot.key } }
 
             BoxWithConstraints(
                 Modifier
@@ -103,6 +117,7 @@ class MainActivity : ComponentActivity() {
                 Home(
                     apps = apps,
                     layout = layout,
+                    prefs = prefs,
                     host = host,
                     onLaunch = { app -> repo.launch(app, null) },
                     onShortcuts = { pkg -> repo.shortcuts(pkg) },
@@ -115,15 +130,30 @@ class MainActivity : ComponentActivity() {
                             drawer.snapTo((drawer.value + delta / heightPx).coerceIn(0f, 1f))
                         }
                     },
-                    onDrawerRelease = {
-                        scope.launch { drawer.animateTo(if (drawer.value > 0.35f) 1f else 0f) }
+                    onDrawerRelease = { velocity ->
+                        scope.launch {
+                            // A flick decides on its own; otherwise position decides. Without the
+                            // fling you had to drag a third of the screen to open anything.
+                            val target = when {
+                                velocity < -900f -> 1f
+                                velocity > 900f -> 0f
+                                drawer.value > 0.22f -> 1f
+                                else -> 0f
+                            }
+                            drawer.animateTo(target)
+                        }
                     },
                     onOpenSettings = { settingsOpen = true },
+                    menuOpen = appMenu != null,
+                    onShowAppMenu = { page, item ->
+                        if (item.slot is Slot.App) appMenu = page to item
+                    },
+                    onDismissAppMenu = { appMenu = null },
                     onOpenOverview = { overviewOpen = true },
-                    onDrop = { lift, drop, page -> handleDrop(lift, drop, page) },
+                    onDrop = { lift, drop, page -> handleDrop(lift, drop, page, prefs.dockCount) },
                     onRenameFolder = { page, item, name -> store.renameFolder(page, item, name) },
                     onResizeWidget = { page, item, x, y ->
-                        store.resizeWidget(page, item, x, y)
+                        store.resizeWidget(page, item, x, y, prefs.cols, prefs.rows)
                         host.resize(
                             (item.slot as? Slot.Widget)?.widgetId ?: return@Home,
                             minWidthDp = x * 88,
@@ -134,7 +164,9 @@ class MainActivity : ComponentActivity() {
                     },
                     goToPage = goToPage,
                     onWentToPage = { goToPage = null },
-                    modifier = Modifier.offset(y = -(maxHeight * drawer.value * 0.06f))
+                    modifier = Modifier.offset(
+                        y = if (prefs.dimOnDrawer) -(maxHeight * drawer.value * 0.06f) else 0.dp
+                    )
                 )
 
                 if (drawer.value > 0.001f) {
@@ -153,9 +185,26 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                if (menuApp != null && appMenu != null) {
+                    val (menuPage, menuItem) = appMenu!!
+                    AppMenu(
+                        label = menuApp.label,
+                        canRemove = true,
+                        canUninstall = !isSystemApp(menuApp.packageName),
+                        onOpen = { repo.launch(menuApp, null) },
+                        onAppInfo = { openAppInfo(menuApp.packageName) },
+                        onNotificationSettings = { openAppNotifications(menuApp.packageName) },
+                        onRemoveFromHome = { store.removeItem(menuPage, menuItem) },
+                        onUninstall = { uninstall(menuApp.packageName) },
+                        onDismiss = { appMenu = null }
+                    )
+                }
+
                 if (overviewOpen) {
                     PageOverview(
                         layout = layout,
+                        cols = prefs.cols,
+                        rows = prefs.rows,
                         currentPage = goToPage ?: layout.homePage,
                         onJump = { index ->
                             goToPage = index
@@ -171,28 +220,37 @@ class MainActivity : ComponentActivity() {
 
                 if (settingsOpen) {
                     SettingsSheet(
+                        prefs = prefs,
+                        layout = layout,
+                        onPrefs = { block -> prefsStore.update(block) },
                         onDismiss = { settingsOpen = false },
                         onAddWidget = {
                             pendingWidgetPage = layout.homePage
                             host.pick(this@MainActivity)
                         },
                         onAddPage = { store.addPage() },
+                        onSetHomePage = { store.setHomePage(it) },
+                        onResetLayout = {
+                            store.reset(apps, prefs.cols, prefs.rows)
+                            settingsOpen = false
+                        },
+                        onResetSettings = { prefsStore.resetToDefaults() },
                         onNotificationAccess = { openNotificationAccess() },
                         onUsageAccess = { openUsageAccess() },
-                        onSetDefaultLauncher = { openHomeSettings() },
-                        onResetLayout = {
-                            store.reset(apps)
-                            settingsOpen = false
-                        }
+                        onSetDefaultLauncher = { openHomeSettings() }
                     )
                 }
 
                 BackHandler(
-                    enabled = drawer.value > 0.01f || settingsOpen || overviewOpen
+                    enabled = drawer.value > 0.01f || settingsOpen || overviewOpen ||
+                        appMenu != null
                 ) {
-                    settingsOpen = false
-                    overviewOpen = false
-                    scope.launch { drawer.animateTo(0f) }
+                    when {
+                        appMenu != null -> appMenu = null
+                        settingsOpen -> settingsOpen = false
+                        overviewOpen -> overviewOpen = false
+                        else -> scope.launch { drawer.animateTo(0f) }
+                    }
                 }
             }
         }
@@ -204,13 +262,15 @@ class MainActivity : ComponentActivity() {
      * The source is only removed once the destination has accepted, so a drop that lands
      * nowhere puts the item back where it was rather than eating it.
      */
-    private fun handleDrop(lift: LiftState, drop: Drop, currentPage: Int) {
+    private fun handleDrop(lift: LiftState, drop: Drop, currentPage: Int, dockCount: Int) {
         when (drop) {
             Drop.None -> Unit
 
             Drop.Remove -> when {
                 lift.fromDock != null ->
-                    store.setDock(store.layout.value.dock.filterIndexed { i, _ -> i != lift.fromDock })
+                    store.setDock(
+                        store.layout.value.dock.filterIndexed { i, _ -> i != lift.fromDock }
+                    )
 
                 lift.fromFolder != null && lift.folderKey != null ->
                     store.removeFromFolder(lift.page, lift.fromFolder, lift.folderKey)
@@ -225,8 +285,11 @@ class MainActivity : ComponentActivity() {
                     dock.add(drop.index.coerceIn(0, dock.size), moving)
                     store.setDock(dock)
                 } else {
-                    if (dock.size >= 5) dock[drop.index.coerceIn(0, dock.lastIndex)] = lift.item.slot
-                    else dock.add(drop.index.coerceIn(0, dock.size), lift.item.slot)
+                    if (dock.size >= dockCount && dock.isNotEmpty()) {
+                        dock[drop.index.coerceIn(0, dock.lastIndex)] = lift.item.slot
+                    } else {
+                        dock.add(drop.index.coerceIn(0, dock.size), lift.item.slot)
+                    }
                     store.setDock(dock)
                     detachSource(lift)
                 }
@@ -277,12 +340,19 @@ class MainActivity : ComponentActivity() {
     private fun detachSource(lift: LiftState) {
         when {
             lift.fromDock != null ->
-                store.setDock(store.layout.value.dock.filterIndexed { i, _ -> i != lift.fromDock })
+                store.setDock(
+                    store.layout.value.dock.filterIndexed { i, _ -> i != lift.fromDock }
+                )
 
             lift.fromFolder != null && lift.folderKey != null ->
                 store.removeFromFolder(lift.page, lift.fromFolder, lift.folderKey)
         }
     }
+
+    private fun isSystemApp(packageName: String): Boolean = runCatching {
+        val flags = packageManager.getApplicationInfo(packageName, 0).flags
+        flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM != 0
+    }.getOrDefault(true)
 
     override fun onStart() {
         super.onStart()
@@ -322,8 +392,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun placeWidget(id: Int) {
+        val prefs = prefsStore.prefs.value
         val (spanX, spanY) = host.defaultSpan(id, cellWidthDp = 90, cellHeightDp = 110)
-        val free = store.firstFreeSlot(pendingWidgetPage, spanX, spanY)
+        val free = store.firstFreeSlot(pendingWidgetPage, spanX, spanY, prefs.cols, prefs.rows)
         if (free == null) {
             // Nowhere on this page, so it gets a page of its own rather than displacing anything.
             store.addPage()
@@ -337,21 +408,43 @@ class MainActivity : ComponentActivity() {
         )
     }
 
-    private fun openNotificationAccess() {
+    private fun openAppInfo(packageName: String) {
         runCatching {
-            startActivity(Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+            startActivity(
+                Intent(
+                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:$packageName")
+                )
+            )
         }
+    }
+
+    private fun openAppNotifications(packageName: String) {
+        runCatching {
+            startActivity(
+                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+            )
+        }.onFailure { openAppInfo(packageName) }
+    }
+
+    private fun uninstall(packageName: String) {
+        runCatching {
+            startActivity(
+                Intent(Intent.ACTION_DELETE, Uri.parse("package:$packageName"))
+            )
+        }
+    }
+
+    private fun openNotificationAccess() {
+        runCatching { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
     }
 
     private fun openUsageAccess() {
-        runCatching {
-            startActivity(Intent(android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS))
-        }
+        runCatching { startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) }
     }
 
     private fun openHomeSettings() {
-        runCatching {
-            startActivity(Intent(android.provider.Settings.ACTION_HOME_SETTINGS))
-        }
+        runCatching { startActivity(Intent(Settings.ACTION_HOME_SETTINGS)) }
     }
 }
