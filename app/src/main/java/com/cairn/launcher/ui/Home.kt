@@ -314,7 +314,11 @@ fun Home(
                     .padding(bottom = 10.dp)
             )
 
-            DrawerHandle(onDrag = onDrawerDrag, onRelease = onDrawerRelease)
+            DrawerHandle(
+                sensitivity = prefs.drawerSensitivity,
+                onDrag = onDrawerDrag,
+                onRelease = onDrawerRelease
+            )
 
             if (prefs.showDock) Dock(
                 slots = layout.dock.take(prefs.dockCount),
@@ -837,18 +841,25 @@ private fun Dock(
 
 /** Drag it and the drawer is wherever your finger is. Let go and it decides. */
 @Composable
-private fun DrawerHandle(onDrag: (Float) -> Unit, onRelease: () -> Unit) {
+private fun DrawerHandle(
+    sensitivity: Float,
+    onDrag: (Float) -> Unit,
+    onRelease: (Float) -> Unit
+) {
     Box(
         Modifier
             .fillMaxWidth()
             .height(22.dp)
-            .pointerInput(Unit) {
+            .pointerInput(sensitivity) {
+                val tracker = VelocityTracker()
                 detectVerticalDragGestures(
-                    onDragEnd = { onRelease() },
-                    onDragCancel = { onRelease() }
+                    onDragStart = { tracker.resetTracking() },
+                    onDragEnd = { onRelease(tracker.calculateVelocity().y) },
+                    onDragCancel = { onRelease(0f) }
                 ) { change, dragAmount ->
                     change.consume()
-                    onDrag(-dragAmount)
+                    tracker.addPosition(change.uptimeMillis, change.position)
+                    onDrag(-dragAmount * sensitivity)
                 }
             },
         contentAlignment = Alignment.Center
