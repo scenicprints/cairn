@@ -37,7 +37,8 @@ fun SettingsSheet(
     onAddPage: () -> Unit,
     onNotificationAccess: () -> Unit,
     onUsageAccess: () -> Unit,
-    onSetDefaultLauncher: () -> Unit
+    onSetDefaultLauncher: () -> Unit,
+    onResetLayout: () -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -46,7 +47,7 @@ fun SettingsSheet(
     Box(
         Modifier
             .fillMaxSize()
-            .background(Color(0xFF14140F).copy(alpha = 0.96f))
+            .background(Cairn.Surface.copy(alpha = 0.97f))
             .clickableNoRipple { onDismiss() },
         contentAlignment = Alignment.BottomStart
     ) {
@@ -58,13 +59,14 @@ fun SettingsSheet(
             Line("Add widget", onAddWidget)
             Line("Add page", onAddPage)
             Line("Set Cairn as home", onSetDefaultLauncher)
+            Line("Reset home screen", onResetLayout)
 
             Spacer(Modifier.height(12.dp))
             Box(
                 Modifier
                     .fillMaxWidth()
                     .height(1.dp)
-                    .background(hairlineColor())
+                    .background(Cairn.SurfaceHairline)
             )
             Spacer(Modifier.height(12.dp))
 
@@ -80,7 +82,7 @@ fun SettingsSheet(
                 Modifier
                     .fillMaxWidth()
                     .height(1.dp)
-                    .background(hairlineColor())
+                    .background(Cairn.SurfaceHairline)
             )
             Spacer(Modifier.height(12.dp))
 
@@ -114,7 +116,7 @@ fun SettingsSheet(
 
             if (status.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
-                Text(status, color = secondaryTextColor(), fontSize = Cairn.DateSize)
+                Text(status, color = Cairn.OnSurfaceSecondary, fontSize = Cairn.DateSize)
             }
 
             Spacer(Modifier.height(20.dp))
@@ -125,13 +127,13 @@ fun SettingsSheet(
 
 @Composable
 private fun Line(text: String, onClick: () -> Unit) {
-    Text(
-        text = text,
-        color = wallpaperTextColor(),
-        fontSize = 15.sp,
-        modifier = Modifier
+    Box(
+        Modifier
             .fillMaxWidth()
-            .clickableNoRipple(onClick)
-            .padding(vertical = 10.dp)
-    )
+            .height(Cairn.MinTouch)
+            .clickableNoRipple(onClick),
+        contentAlignment = androidx.compose.ui.Alignment.CenterStart
+    ) {
+        Text(text = text, color = Cairn.OnSurface, fontSize = 16.sp)
+    }
 }

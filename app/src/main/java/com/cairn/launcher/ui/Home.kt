@@ -199,6 +199,19 @@ fun Home(
                     .weight(1f)
                     .fillMaxWidth()
                     .pinchIn { onOpenOverview() }
+                    // Swipe up anywhere on the page. Tiles consume downward drags for the pull
+                    // and consume nothing else, so an upward drag reaches this untouched.
+                    .pointerInput(Unit) {
+                        detectVerticalDragGestures(
+                            onDragEnd = { onDrawerRelease() },
+                            onDragCancel = { onDrawerRelease() }
+                        ) { change, dragAmount ->
+                            if (dragAmount < 0f) {
+                                change.consume()
+                                onDrawerDrag(-dragAmount)
+                            }
+                        }
+                    }
             ) { pageIndex ->
                 PageGrid(
                     page = layout.pages.getOrNull(pageIndex) ?: Page(emptyList()),
@@ -399,13 +412,15 @@ private fun PageGrid(
         Modifier
             .fillMaxSize()
             .padding(horizontal = Cairn.PagePadding)
-            .onGloballyPositioned {
-                val p = it.positionInRoot()
-                onBounds(Rect(p.x, p.y, p.x + it.size.width, p.y + it.size.height))
-            }
     ) {
+        // A row is a fixed height, not a share of the page. Dividing the page by the row count
+        // left a 48dp icon floating in the middle of a 140dp cell, which is most of why this
+        // looked nothing like the drawings.
         val cellWidth = maxWidth / GRID_COLS
-        val cellHeight = maxHeight / GRID_ROWS
+        val cellHeight = Cairn.RowHeight
+        val gridHeight = cellHeight * GRID_ROWS
+        val gridTop = (maxHeight - gridHeight).coerceAtLeast(0.dp)
+        val rowPx = with(density) { cellHeight.roundToPx() }
 
         Layout(
             content = {
@@ -443,10 +458,17 @@ private fun PageGrid(
                     }
                 }
             },
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(gridHeight)
+                .align(Alignment.BottomStart)
+                .onGloballyPositioned {
+                    val p = it.positionInRoot()
+                    onBounds(Rect(p.x, p.y, p.x + it.size.width, p.y + it.size.height))
+                }
         ) { measurables, constraints ->
             val w = if (GRID_COLS > 0) constraints.maxWidth / GRID_COLS else constraints.maxWidth
-            val h = if (GRID_ROWS > 0) constraints.maxHeight / GRID_ROWS else constraints.maxHeight
+            val h = rowPx
             val shift = (pullProgress * panelPx).toInt()
 
             val measured = measurables.map { m ->
@@ -469,6 +491,7 @@ private fun PageGrid(
         if (resizing != null) {
             ResizeHandles(
                 item = resizing,
+                topInset = gridTop,
                 cellWidth = cellWidth,
                 cellHeight = cellHeight,
                 onResize = { x, y -> onResize(resizing, x, y) },
@@ -488,7 +511,7 @@ private fun PageGrid(
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .offset(y = cellHeight * (pulledRow + 1))
+                    .offset(y = gridTop + cellHeight * (pulledRow + 1))
                     .height(PANEL_HEIGHT * pullProgress)
             ) {
                 PullPanel(
@@ -520,6 +543,7 @@ private fun PageGrid(
 @Composable
 private fun ResizeHandles(
     item: Placed,
+    topInset: Dp,
     cellWidth: Dp,
     cellHeight: Dp,
     onResize: (Int, Int) -> Unit,
@@ -531,7 +555,7 @@ private fun ResizeHandles(
 
     Box(
         Modifier
-            .offset(x = cellWidth * item.col, y = cellHeight * item.row)
+            .offset(x = cellWidth * item.col, y = topInset + cellHeight * item.row)
             .width(cellWidth * spanX)
             .height(cellHeight * spanY)
     ) {

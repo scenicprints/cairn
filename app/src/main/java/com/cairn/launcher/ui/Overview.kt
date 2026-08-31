@@ -50,7 +50,7 @@ fun PageOverview(
     Box(
         Modifier
             .fillMaxSize()
-            .background(Color(0xFF14140F).copy(alpha = 0.95f))
+            .background(Cairn.Surface.copy(alpha = 0.97f))
             .clickableNoRipple { onDismiss() },
         contentAlignment = Alignment.Center
     ) {
@@ -81,7 +81,7 @@ fun PageOverview(
                             if (index > 0) {
                                 Text(
                                     "left",
-                                    color = secondaryTextColor(),
+                                    color = Cairn.OnSurfaceSecondary,
                                     fontSize = Cairn.LabelSize,
                                     modifier = Modifier.clickableNoRipple { onMove(index, index - 1) }
                                 )
@@ -89,7 +89,7 @@ fun PageOverview(
                             if (index < layout.pages.lastIndex) {
                                 Text(
                                     "right",
-                                    color = secondaryTextColor(),
+                                    color = Cairn.OnSurfaceSecondary,
                                     fontSize = Cairn.LabelSize,
                                     modifier = Modifier.clickableNoRipple { onMove(index, index + 1) }
                                 )
@@ -100,8 +100,8 @@ fun PageOverview(
 
                         Text(
                             if (index == layout.homePage) "home" else "set home",
-                            color = if (index == layout.homePage) wallpaperTextColor()
-                            else secondaryTextColor(),
+                            color = if (index == layout.homePage) Cairn.OnSurface
+                            else Cairn.OnSurfaceSecondary,
                             fontSize = Cairn.LabelSize,
                             modifier = Modifier.clickableNoRipple { onSetHome(index) }
                         )
@@ -124,11 +124,11 @@ fun PageOverview(
                             Modifier
                                 .width(96.dp)
                                 .aspectRatio(GRID_COLS.toFloat() / GRID_ROWS)
-                                .border(1.dp, hairlineColor())
+                                .border(1.dp, Cairn.SurfaceHairline)
                                 .clickableNoRipple { onAddPage() },
                             contentAlignment = Alignment.Center
                         ) {
-                            Text("add", color = secondaryTextColor(), fontSize = Cairn.LabelSize)
+                            Text("add", color = Cairn.OnSurfaceSecondary, fontSize = Cairn.LabelSize)
                         }
                     }
                 }
@@ -136,7 +136,7 @@ fun PageOverview(
 
             Text(
                 text = "tap a page to go there",
-                color = secondaryTextColor(),
+                color = Cairn.OnSurfaceSecondary,
                 fontSize = 12.sp,
                 modifier = Modifier.padding(horizontal = Cairn.PagePadding)
             )
@@ -157,7 +157,7 @@ private fun PageThumbnail(
             .aspectRatio(GRID_COLS.toFloat() / GRID_ROWS)
             .border(
                 width = if (isCurrent) 1.dp else 1.dp,
-                color = if (isCurrent) wallpaperTextColor() else hairlineColor()
+                color = if (isCurrent) Cairn.OnSurface else Cairn.SurfaceHairline
             )
             .padding(4.dp)
     ) {
@@ -171,8 +171,8 @@ private fun PageThumbnail(
                         }
                         val fill = when (item?.slot) {
                             null -> Color.Transparent
-                            is Slot.Widget -> wallpaperTextColor().copy(alpha = 0.28f)
-                            else -> wallpaperTextColor().copy(alpha = 0.7f)
+                            is Slot.Widget -> Cairn.OnSurface.copy(alpha = 0.28f)
+                            else -> Cairn.OnSurface.copy(alpha = 0.7f)
                         }
                         Box(
                             Modifier

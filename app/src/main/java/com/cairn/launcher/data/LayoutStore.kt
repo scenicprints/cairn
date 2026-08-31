@@ -29,24 +29,47 @@ class LayoutStore(private val context: Context) {
         if (parsed != null) _layout.value = parsed
     }
 
-    /** Builds a first-run layout: everything installed, alphabetical, four across. */
+    /**
+     * Builds a first-run layout.
+     *
+     * One page, twelve apps, and a dock. The first version chunked every installed app into
+     * pages twenty at a time, which produced a dozen pages of alphabetical noise and made the
+     * launcher look broken before it had done anything wrong. Everything you own is already one
+     * swipe away in the drawer, so the home screen starts nearly empty and you fill it yourself.
+     */
     fun seedIfEmpty(apps: List<AppInfo>) {
         if (file.exists() || apps.isEmpty()) return
-        val perPage = GRID_COLS * GRID_ROWS
-        val dockKeys = apps.take(5).map { it.key }
-        val rest = apps.drop(5)
-        val pages = rest.chunked(perPage).map { chunk ->
-            Page(chunk.mapIndexed { i, app ->
-                Placed(
-                    col = i % GRID_COLS,
-                    row = i / GRID_COLS,
-                    spanX = 1,
-                    spanY = 1,
-                    slot = Slot.App(app.key)
-                )
-            })
-        }.ifEmpty { listOf(Page(emptyList())) }
-        update(Layout(pages, dockKeys.map { Slot.App(it) }, 0))
+
+        val wanted = listOf("dialer", "messaging", "chrome", "camera", "photos")
+        val dock = wanted.mapNotNull { hint ->
+            apps.firstOrNull { it.packageName.contains(hint, ignoreCase = true) }
+        }.distinctBy { it.key }.take(5).ifEmpty { apps.take(5) }
+
+        val docked = dock.map { it.key }.toSet()
+        val onPage = apps.filterNot { it.key in docked }.take(GRID_COLS * 3)
+
+        val page = Page(onPage.mapIndexed { i, app ->
+            Placed(
+                col = i % GRID_COLS,
+                row = i / GRID_COLS,
+                spanX = 1,
+                spanY = 1,
+                slot = Slot.App(app.key)
+            )
+        })
+
+        update(Layout(listOf(page), dock.map { Slot.App(it.key) }, 0))
+    }
+
+    /**
+     * Throws the layout away and seeds it again. Needed because seedIfEmpty deliberately never
+     * touches an existing layout, so a bad first seed would otherwise outlive every update that
+     * fixed it.
+     */
+    fun reset(apps: List<AppInfo>) {
+        runCatching { file.delete() }
+        _layout.value = Layout(listOf(Page(emptyList())), emptyList(), 0)
+        seedIfEmpty(apps)
     }
 
     fun update(next: Layout) {

@@ -179,7 +179,11 @@ class MainActivity : ComponentActivity() {
                         onAddPage = { store.addPage() },
                         onNotificationAccess = { openNotificationAccess() },
                         onUsageAccess = { openUsageAccess() },
-                        onSetDefaultLauncher = { openHomeSettings() }
+                        onSetDefaultLauncher = { openHomeSettings() },
+                        onResetLayout = {
+                            store.reset(apps)
+                            settingsOpen = false
+                        }
                     )
                 }
 

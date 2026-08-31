@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -42,6 +43,9 @@ enum class DrawerRow { Recent, New, Frequent }
  * A bar with a magnifier and the word Search in it is a picture of a place to type, sitting
  * above the actual place to type. So: pull up, start typing, the list filters, and what you
  * typed appears as plain text with nothing drawn around it.
+ *
+ * Everything in here draws on Cairn's own dark panel, so it uses [Cairn.OnSurface] and never
+ * the wallpaper-derived colour. Getting that wrong is what made the whole drawer look dead.
  */
 @Composable
 fun Drawer(
@@ -68,42 +72,47 @@ fun Drawer(
     Column(
         modifier
             .fillMaxSize()
-            .background(Color(0xFF14140F).copy(alpha = 0.94f * progress))
+            .background(Cairn.Surface.copy(alpha = (0.94f * progress).coerceIn(0f, 1f)))
+            .imePadding()
             .padding(horizontal = Cairn.PagePadding)
     ) {
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(16.dp))
 
-        // The one row Nova gets right: recent, new, frequent, across the top.
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(20.dp)
-        ) {
+        // The one row Nova gets right: recent, new, frequent, across the top. These are real
+        // touch targets now rather than eleven-point text with a text-sized hit area.
+        Row(Modifier.fillMaxWidth()) {
             DrawerRow.entries.forEach { mode ->
-                Text(
-                    text = mode.name.lowercase(),
-                    color = if (mode == rowMode) wallpaperTextColor() else secondaryTextColor(),
-                    fontSize = Cairn.LabelSize,
-                    modifier = Modifier.clickableNoRipple { onRowModeChange(mode) }
-                )
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .height(Cairn.MinTouch)
+                        .clickableNoRipple { onRowModeChange(mode) },
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    Text(
+                        text = mode.name.lowercase(),
+                        color = if (mode == rowMode) Cairn.OnSurface
+                        else Cairn.OnSurfaceSecondary,
+                        fontSize = 14.sp
+                    )
+                }
             }
         }
-
-        Spacer(Modifier.height(10.dp))
 
         Row(
             Modifier
                 .fillMaxWidth()
-                .height(58.dp),
+                .height(64.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.Top
         ) {
             rowApps.take(6).forEach { app ->
                 Box(
                     Modifier
-                        .width(52.dp)
+                        .width(54.dp)
                         .clickableNoRipple { onLaunch(app) }
                 ) {
-                    IconTile(app, showLabel = false)
+                    IconTile(app, showLabel = false, onSurface = true)
                 }
             }
         }
@@ -112,18 +121,18 @@ fun Drawer(
             Modifier
                 .fillMaxWidth()
                 .height(1.dp)
-                .background(hairlineColor())
+                .background(Cairn.SurfaceHairline)
         )
 
         if (query.isNotEmpty()) {
             Text(
                 text = query,
-                color = wallpaperTextColor(),
-                fontSize = 18.sp,
-                modifier = Modifier.padding(vertical = 10.dp)
+                color = Cairn.OnSurface,
+                fontSize = 20.sp,
+                modifier = Modifier.padding(vertical = 12.dp)
             )
         } else {
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(12.dp))
         }
 
         LazyColumn(Modifier.weight(1f)) {
@@ -131,15 +140,15 @@ fun Drawer(
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .height(46.dp)
+                        .height(Cairn.MinTouch + 6.dp)
                         .clickableNoRipple { onLaunch(app) },
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Box(Modifier.size(30.dp)) {
-                        IconTile(app, showLabel = false)
+                    Box(Modifier.size(32.dp)) {
+                        IconTile(app, showLabel = false, onSurface = true, iconSize = 32.dp)
                     }
                     Spacer(Modifier.width(14.dp))
-                    Text(app.label, color = wallpaperTextColor(), fontSize = 15.sp)
+                    Text(app.label, color = Cairn.OnSurface, fontSize = 16.sp)
                 }
             }
         }

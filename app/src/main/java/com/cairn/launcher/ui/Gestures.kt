@@ -2,25 +2,36 @@ package com.cairn.launcher.ui
 
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventTimeoutCancellationException
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import kotlin.math.abs
 
-private enum class TileMode { Tap, Pull, Lift }
+private enum class TileMode { Tap, Pull, Lift, PassThrough }
 
 /**
- * The whole gesture vocabulary of a tile, decided by direction rather than by duration.
+ * A tile's gestures, and the one rule that matters: it claims as little as possible.
  *
- * Straight down means show me what is inside this. Any other direction means pick this up.
- * Neither one is a long press, because a long press is a timer with no face on it: nothing
- * tells you how long to hold, and nothing distinguishes still waiting from it did not take.
- * Both of these announce themselves at the first pixel and both can be put back.
+ * The first version of this decided by direction alone, treating anything that was not a
+ * downward drag as "pick this up". That consumed the touch slop before HorizontalPager ever
+ * saw it, so a sideways swipe that began on an icon could not turn the page, and since the
+ * home screen is mostly icons, paging was effectively dead.
+ *
+ * The gesture space is simply full. Horizontal belongs to the pager and vertical-up belongs to
+ * the drawer, which leaves only vertical-down and a hold. So:
+ *
+ *  - Straight down: pull the tile open. Consumed, because nothing else wants it.
+ *  - Hold still: pick the tile up. Nothing has been consumed yet and the finger has not moved,
+ *    so nothing else has started either.
+ *  - Anything else: consume nothing at all and let it through to the pager or the drawer.
+ *
+ * That means long press is back for dragging. It is the honest answer: a launcher has more
+ * meanings than it has directions, and the hold is the only one left that collides with nothing.
  */
 fun Modifier.tileGestures(
     onTap: () -> Unit,
@@ -33,23 +44,53 @@ fun Modifier.tileGestures(
 ): Modifier = pointerInput(Unit) {
     awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = false)
-        var mode = TileMode.Tap
+        val slop = viewConfiguration.touchSlop
+        val holdMillis = viewConfiguration.longPressTimeoutMillis
 
-        val crossed = awaitTouchSlopOrCancellation(down.id) { change, over ->
-            mode = if (over.y > 0f && abs(over.y) > abs(over.x)) TileMode.Pull else TileMode.Lift
-            change.consume()
-        }
+        var travel = Offset.Zero
+        var mode: TileMode? = null
 
-        if (crossed == null) {
-            // The pointer went up without travelling. That is a tap.
-            if (mode == TileMode.Tap) onTap()
-            return@awaitEachGesture
+        // Nothing is consumed inside this window. If the gesture turns out to belong to the
+        // pager or the drawer, they have been receiving it in parallel the whole time.
+        try {
+            withTimeout(holdMillis) {
+                while (mode == null) {
+                    val event = awaitPointerEvent()
+                    val change = event.changes.firstOrNull { it.id == down.id }
+                    if (change == null) {
+                        mode = TileMode.PassThrough
+                        break
+                    }
+                    if (!change.pressed) {
+                        mode = TileMode.Tap
+                        break
+                    }
+                    if (change.isConsumed) {
+                        mode = TileMode.PassThrough
+                        break
+                    }
+                    travel += change.positionChange()
+                    if (travel.getDistance() > slop) {
+                        mode = if (travel.y > 0f && abs(travel.y) > abs(travel.x)) {
+                            TileMode.Pull
+                        } else {
+                            TileMode.PassThrough
+                        }
+                    }
+                }
+            }
+        } catch (_: PointerEventTimeoutCancellationException) {
+            // Held still for the long press timeout without moving. That is a pick-up.
+            mode = TileMode.Lift
         }
 
         when (mode) {
+            TileMode.Tap -> onTap()
+
             TileMode.Pull -> {
                 onPullStart()
-                var travelled = 0f
+                var travelled = travel.y.coerceAtLeast(0f)
+                onPullDelta(travelled)
                 drag(down.id) { change ->
                     travelled += change.positionChange().y
                     onPullDelta(travelled.coerceAtLeast(0f))
@@ -69,7 +110,8 @@ fun Modifier.tileGestures(
                 onLiftDrop()
             }
 
-            TileMode.Tap -> Unit
+            // Consume nothing and get out of the way.
+            TileMode.PassThrough, null -> Unit
         }
     }
 }
