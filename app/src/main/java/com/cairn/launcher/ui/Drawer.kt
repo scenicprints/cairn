@@ -37,12 +37,14 @@ import com.cairn.launcher.data.AppInfo
 enum class DrawerRow { Recent, New, Frequent }
 
 /**
- * The drawer has no search bar.
+ * The drawer, with a search field that you can actually see.
  *
- * The keyboard is already rising as you pull it open, and the keyboard is the place you type.
- * A bar with a magnifier and the word Search in it is a picture of a place to type, sitting
- * above the actual place to type. So: pull up, start typing, the list filters, and what you
- * typed appears as plain text with nothing drawn around it.
+ * It first had no field at all, on the argument that the keyboard is already the place you type
+ * so a box saying Search is a picture of one. That argument is fine and the result was useless:
+ * nothing told you to type and nothing showed that typing had worked. A field is not decoration
+ * when it is the only thing announcing that search exists.
+ *
+ * It is still not a bordered pill with a magnifier in it. A line of type on a rule is enough.
  *
  * Everything in here draws on Cairn's own dark panel, so it uses [Cairn.OnSurface] and never
  * the wallpaper-derived colour. Getting that wrong is what made the whole drawer look dead.
@@ -78,9 +80,49 @@ fun Drawer(
     ) {
         Spacer(Modifier.height(12.dp))
 
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .height(48.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                BasicTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    singleLine = true,
+                    textStyle = TextStyle(color = Cairn.OnSurface, fontSize = 18.sp),
+                    cursorBrush = SolidColor(Cairn.OnSurface),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(focus)
+                )
+                if (query.isEmpty()) {
+                    Text("Search", color = Cairn.OnSurfaceSecondary, fontSize = 18.sp)
+                }
+            }
+            if (query.isNotEmpty()) {
+                Box(
+                    Modifier
+                        .size(Cairn.MinTouch)
+                        .clickableNoRipple { query = "" },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("clear", color = Cairn.OnSurfaceSecondary, fontSize = 14.sp)
+                }
+            }
+        }
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(Cairn.OnSurface.copy(alpha = 0.45f))
+        )
+        Spacer(Modifier.height(10.dp))
+
         // The one row Nova gets right: recent, new, frequent, across the top. These are real
         // touch targets now rather than eleven-point text with a text-sized hit area.
-        Row(
+        if (query.isEmpty()) Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
@@ -111,7 +153,7 @@ fun Drawer(
             }
         }
 
-        Row(
+        if (query.isEmpty()) Row(
             Modifier
                 .fillMaxWidth()
                 .height(64.dp),
@@ -136,16 +178,7 @@ fun Drawer(
                 .background(Cairn.SurfaceHairline)
         )
 
-        if (query.isNotEmpty()) {
-            Text(
-                text = query,
-                color = Cairn.OnSurface,
-                fontSize = 20.sp,
-                modifier = Modifier.padding(vertical = 12.dp)
-            )
-        } else {
-            Spacer(Modifier.height(12.dp))
-        }
+        Spacer(Modifier.height(4.dp))
 
         LazyColumn(Modifier.weight(1f)) {
             items(filtered, key = { it.key }) { app ->
@@ -164,19 +197,6 @@ fun Drawer(
                 }
             }
         }
-
-        // Invisible, and the only reason it exists is to own the keyboard.
-        BasicTextField(
-            value = query,
-            onValueChange = { query = it },
-            singleLine = true,
-            textStyle = TextStyle(color = Color.Transparent, fontSize = 1.sp),
-            cursorBrush = SolidColor(Color.Transparent),
-            modifier = Modifier
-                .height(1.dp)
-                .fillMaxWidth()
-                .focusRequester(focus)
-        )
     }
 }
 

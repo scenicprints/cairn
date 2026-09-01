@@ -114,8 +114,12 @@ class MainActivity : ComponentActivity() {
                     .windowInsetsPadding(WindowInsets.systemBars)
             ) {
                 val heightPx = with(LocalDensity.current) { maxHeight.toPx() }
+                val drawerFullyOpen = drawer.value > 0.995f
 
-                Home(
+                // Not composed at all behind an open drawer. Making the drawer opaque was
+                // supposed to be enough and evidently was not, so the home screen simply is not
+                // there to show through.
+                if (!drawerFullyOpen) Home(
                     apps = apps,
                     layout = layout,
                     prefs = prefs,
@@ -179,7 +183,11 @@ class MainActivity : ComponentActivity() {
                 )
 
                 if (drawer.value > 0.001f) {
-                    Box(Modifier.offset(y = maxHeight * (1f - drawer.value))) {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .offset(y = maxHeight * (1f - drawer.value))
+                    ) {
                         Drawer(
                             apps = apps,
                             rowMode = rowMode,
