@@ -86,21 +86,26 @@ fun Drawer(
         ) {
             DrawerRow.entries.forEach { mode ->
                 val selected = mode == rowMode
-                Box(
+                Column(
                     Modifier
                         .weight(1f)
                         .height(52.dp)
-                        .background(
-                            if (selected) Cairn.OnSurface.copy(alpha = 0.12f)
-                            else Color.Transparent
-                        )
                         .clickableNoRipple { onRowModeChange(mode) },
-                    contentAlignment = Alignment.Center
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
                 ) {
                     Text(
                         text = mode.name.lowercase(),
                         color = if (selected) Cairn.OnSurface else Cairn.OnSurfaceSecondary,
-                        fontSize = 17.sp
+                        fontSize = 16.sp
+                    )
+                    Spacer(Modifier.height(7.dp))
+                    // The mark is the shelf under the word. No box, no fill, no chip.
+                    Box(
+                        Modifier
+                            .width(22.dp)
+                            .height(1.dp)
+                            .background(if (selected) Cairn.OnSurface else Color.Transparent)
                     )
                 }
             }

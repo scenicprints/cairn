@@ -34,6 +34,8 @@ private enum class TileMode { Tap, Pull, Lift, PassThrough }
  * meanings than it has directions, and the hold is the only one left that collides with nothing.
  */
 fun Modifier.tileGestures(
+    /** In edit mode the intent is already declared, so a drag picks the tile up at once. */
+    dragImmediately: Boolean = false,
     onTap: () -> Unit,
     onPullStart: () -> Unit,
     onPullDelta: (Float) -> Unit,
@@ -41,7 +43,7 @@ fun Modifier.tileGestures(
     onLiftStart: (Offset) -> Unit,
     onLiftMove: (Offset) -> Unit,
     onLiftDrop: () -> Unit
-): Modifier = pointerInput(Unit) {
+): Modifier = pointerInput(dragImmediately) {
     awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = false)
         val slop = viewConfiguration.touchSlop
@@ -71,10 +73,10 @@ fun Modifier.tileGestures(
                     }
                     travel += change.positionChange()
                     if (travel.getDistance() > slop) {
-                        mode = if (travel.y > 0f && abs(travel.y) > abs(travel.x)) {
-                            TileMode.Pull
-                        } else {
-                            TileMode.PassThrough
+                        mode = when {
+                            dragImmediately -> TileMode.Lift
+                            travel.y > 0f && abs(travel.y) > abs(travel.x) -> TileMode.Pull
+                            else -> TileMode.PassThrough
                         }
                     }
                 }

@@ -90,6 +90,7 @@ class MainActivity : ComponentActivity() {
             var overviewOpen by remember { mutableStateOf(false) }
             var goToPage by remember { mutableStateOf<Int?>(null) }
             var appMenu by remember { mutableStateOf<Pair<Int, Placed>?>(null) }
+            var editing by remember { mutableStateOf(false) }
 
             LaunchedEffect(apps.size) {
                 if (apps.isNotEmpty()) store.seedIfEmpty(apps, prefs.cols, prefs.rows)
@@ -144,6 +145,14 @@ class MainActivity : ComponentActivity() {
                         }
                     },
                     onOpenSettings = { settingsOpen = true },
+                    editing = editing,
+                    onEnterEdit = { editing = true },
+                    onExitEdit = { editing = false },
+                    onAddWidget = {
+                        pendingWidgetPage = layout.homePage
+                        host.pick(this@MainActivity)
+                    },
+                    onWallpaper = { pickWallpaper() },
                     menuOpen = appMenu != null,
                     onShowAppMenu = { page, item ->
                         if (item.slot is Slot.App) appMenu = page to item
@@ -221,15 +230,8 @@ class MainActivity : ComponentActivity() {
                 if (settingsOpen) {
                     SettingsSheet(
                         prefs = prefs,
-                        layout = layout,
                         onPrefs = { block -> prefsStore.update(block) },
                         onDismiss = { settingsOpen = false },
-                        onAddWidget = {
-                            pendingWidgetPage = layout.homePage
-                            host.pick(this@MainActivity)
-                        },
-                        onAddPage = { store.addPage() },
-                        onSetHomePage = { store.setHomePage(it) },
                         onResetLayout = {
                             store.reset(apps, prefs.cols, prefs.rows)
                             settingsOpen = false
@@ -243,12 +245,13 @@ class MainActivity : ComponentActivity() {
 
                 BackHandler(
                     enabled = drawer.value > 0.01f || settingsOpen || overviewOpen ||
-                        appMenu != null
+                        appMenu != null || editing
                 ) {
                     when {
                         appMenu != null -> appMenu = null
                         settingsOpen -> settingsOpen = false
                         overviewOpen -> overviewOpen = false
+                        editing -> editing = false
                         else -> scope.launch { drawer.animateTo(0f) }
                     }
                 }
@@ -442,6 +445,17 @@ class MainActivity : ComponentActivity() {
 
     private fun openUsageAccess() {
         runCatching { startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) }
+    }
+
+    private fun pickWallpaper() {
+        runCatching {
+            startActivity(
+                Intent.createChooser(
+                    Intent(Intent.ACTION_SET_WALLPAPER),
+                    "Wallpaper"
+                )
+            )
+        }
     }
 
     private fun openHomeSettings() {

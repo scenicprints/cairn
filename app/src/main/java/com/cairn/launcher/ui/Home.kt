@@ -45,6 +45,7 @@ import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.cairn.launcher.data.AppInfo
 import com.cairn.launcher.data.Page
 import com.cairn.launcher.data.Placed
@@ -110,6 +111,11 @@ fun Home(
     onDrawerDrag: (Float) -> Unit,
     onDrawerRelease: (Float) -> Unit,
     onOpenSettings: () -> Unit,
+    editing: Boolean,
+    onEnterEdit: () -> Unit,
+    onExitEdit: () -> Unit,
+    onAddWidget: () -> Unit,
+    onWallpaper: () -> Unit,
     menuOpen: Boolean,
     onShowAppMenu: (Int, Placed) -> Unit,
     onDismissAppMenu: () -> Unit,
@@ -213,7 +219,7 @@ fun Home(
                     .pinchIn { onOpenOverview() }
                     // Swipe up anywhere on the page. Tiles consume downward drags for the pull
                     // and consume nothing else, so an upward drag reaches this untouched.
-                    .longPressBackground { onOpenSettings() }
+                    .longPressBackground { onEnterEdit() }
                     .pointerInput(prefs.drawerSensitivity) {
                         val tracker = VelocityTracker()
                         detectVerticalDragGestures(
@@ -234,6 +240,7 @@ fun Home(
                     page = layout.pages.getOrNull(pageIndex) ?: Page(emptyList()),
                     pageIndex = pageIndex,
                     isCurrent = pageIndex == pagerState.currentPage,
+                    editing = editing,
                     prefs = prefs,
                     byKey = byKey,
                     host = host,
@@ -286,6 +293,11 @@ fun Home(
                             onShowAppMenu(pageIndex, item)
                         }
                     },
+                    onEditTap = { index ->
+                        layout.pages.getOrNull(pageIndex)?.items?.getOrNull(index)?.let {
+                            onShowAppMenu(pageIndex, it)
+                        }
+                    },
                     onLiftMove = { moved ->
                         // Once you actually move, the hold stops being a menu and becomes a drag.
                         if (moved.getDistance() > 24f) onDismissAppMenu()
@@ -314,11 +326,21 @@ fun Home(
                     .padding(bottom = 10.dp)
             )
 
-            DrawerHandle(
-                sensitivity = prefs.drawerSensitivity,
-                onDrag = onDrawerDrag,
-                onRelease = onDrawerRelease
-            )
+            if (editing) {
+                EditBar(
+                    onAddWidget = onAddWidget,
+                    onPages = onOpenOverview,
+                    onWallpaper = onWallpaper,
+                    onSettings = onOpenSettings,
+                    onDone = onExitEdit
+                )
+            } else {
+                DrawerHandle(
+                    sensitivity = prefs.drawerSensitivity,
+                    onDrag = onDrawerDrag,
+                    onRelease = onDrawerRelease
+                )
+            }
 
             if (prefs.showDock) Dock(
                 slots = layout.dock.take(prefs.dockCount),
@@ -409,6 +431,7 @@ private fun PageGrid(
     page: Page,
     pageIndex: Int,
     isCurrent: Boolean,
+    editing: Boolean,
     prefs: Prefs,
     byKey: Map<String, AppInfo>,
     host: CairnWidgetHost,
@@ -429,6 +452,7 @@ private fun PageGrid(
     onPullDelta: (Float) -> Unit,
     onPullRelease: () -> Unit,
     onLiftStart: (Int, Offset) -> Unit,
+    onEditTap: (Int) -> Unit,
     onLiftMove: (Offset) -> Unit,
     onLiftDrop: () -> Unit,
     onFolderChildLift: (Placed, String, Offset, Offset, Offset) -> Unit
@@ -474,6 +498,8 @@ private fun PageGrid(
                         if (!inTheAir) {
                             SlotContent(
                                 placed = placed,
+                                editing = editing,
+                                onEditTap = { onEditTap(index) },
                                 prefs = prefs,
                                 byKey = byKey,
                                 host = host,
@@ -642,6 +668,8 @@ private fun ResizeHandles(
 @Composable
 private fun SlotContent(
     placed: Placed,
+    editing: Boolean,
+    onEditTap: () -> Unit,
     prefs: Prefs,
     byKey: Map<String, AppInfo>,
     host: CairnWidgetHost,
@@ -661,7 +689,8 @@ private fun SlotContent(
                     Modifier
                         .fillMaxSize()
                         .tileGestures(
-                            onTap = { onLaunch(app) },
+                            dragImmediately = editing,
+                            onTap = { if (editing) onEditTap() else onLaunch(app) },
                             onPullStart = onPullStart,
                             onPullDelta = onPullDelta,
                             onPullRelease = onPullRelease,
@@ -869,6 +898,61 @@ private fun DrawerHandle(
                 .width(28.dp)
                 .height(1.dp)
                 .background(hairlineColor())
+        )
+    }
+}
+
+/**
+ * What a hold on the wallpaper offers: the tools for arranging the screen, and nothing else.
+ *
+ * Preferences deliberately do not live behind a long press. Holding the screen is about the
+ * screen, and a settings menu appearing when you meant to move an icon is the kind of surprise
+ * that makes you stop using a gesture.
+ */
+@Composable
+private fun EditBar(
+    onAddWidget: () -> Unit,
+    onPages: () -> Unit,
+    onWallpaper: () -> Unit,
+    onSettings: () -> Unit,
+    onDone: () -> Unit
+) {
+    Column {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(hairlineColor())
+        )
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .height(Cairn.MinTouch)
+                .padding(horizontal = Cairn.PagePadding),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            EditWord("widgets", onAddWidget)
+            EditWord("pages", onPages)
+            EditWord("wallpaper", onWallpaper)
+            EditWord("settings", onSettings)
+            EditWord("done", onDone, emphasis = true)
+        }
+    }
+}
+
+@Composable
+private fun EditWord(text: String, onClick: () -> Unit, emphasis: Boolean = false) {
+    Box(
+        Modifier
+            .height(Cairn.MinTouch)
+            .clickableNoRipple(onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = text,
+            color = if (emphasis) wallpaperTextColor() else secondaryTextColor(),
+            fontSize = 14.sp
         )
     }
 }
